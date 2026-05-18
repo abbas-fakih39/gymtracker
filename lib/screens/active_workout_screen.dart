@@ -148,7 +148,8 @@ class _WorkoutBody extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => ExercisePickerSheet(
-        onSelected: (ex) => notifier.addExercise(ex.id, ex.name, ex.muscleGroup),
+        onSelected: (ex) =>
+            notifier.addExercise(ex.id, ex.name, ex.muscleGroup, notes: ex.notes),
       ),
     );
   }

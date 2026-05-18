@@ -5,10 +5,13 @@ import 'package:uuid/uuid.dart';
 
 import '../db/app_database.dart';
 import '../providers/database_provider.dart';
+import 'exercise_detail_screen.dart';
 
 const _uuid = Uuid();
 
-const _muscleGroups = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core'];
+const _muscleGroups = [
+  'Chest', 'Back', 'Legs', 'Shoulders', 'Biceps', 'Triceps', 'Core'
+];
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -106,7 +109,7 @@ class _ExerciseLibraryScreenState
                   selected: _selectedGroup == null,
                   onTap: () => setState(() => _selectedGroup = null),
                 ),
-                ...['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core']
+                ..._muscleGroups
                     .map((g) => _FilterChip(
                           label: g,
                           selected: _selectedGroup == g,
@@ -134,7 +137,17 @@ class _ExerciseLibraryScreenState
                 for (final entry in grouped.entries) {
                   children.add(_SectionHeader(title: entry.key));
                   for (final ex in entry.value) {
-                    final row = _ExerciseRow(exercise: ex);
+                    void openDetail() => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ExerciseDetailScreen(exerciseId: ex.id),
+                          ),
+                        );
+                    final row = _ExerciseRow(
+                      exercise: ex,
+                      onTap: openDetail,
+                    );
                     if (ex.isCustom) {
                       children.add(Dismissible(
                         key: ValueKey(ex.id),
@@ -234,9 +247,10 @@ class _SectionHeader extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ExerciseRow extends StatelessWidget {
-  const _ExerciseRow({required this.exercise});
+  const _ExerciseRow({required this.exercise, required this.onTap});
 
   final Exercise exercise;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -244,6 +258,7 @@ class _ExerciseRow extends StatelessWidget {
     final isCompound = exercise.category == 'compound';
 
     return ListTile(
+      onTap: onTap,
       title: Text(exercise.name),
       trailing: Wrap(
         spacing: 6,

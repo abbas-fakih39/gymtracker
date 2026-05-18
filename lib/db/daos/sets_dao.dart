@@ -38,12 +38,22 @@ class SetsDao extends DatabaseAccessor<AppDatabase> with _$SetsDaoMixin {
         .reduce((a, b) => a > b ? a : b);
   }
 
-  /// Inserts a set and marks it as a PR if it beats the previous best volume.
+  /// Returns the all-time heaviest single-set weight for an exercise.
+  Future<double?> getBestWeight(String exerciseId) async {
+    final sets = await getForExercise(exerciseId);
+    if (sets.isEmpty) return null;
+    return sets.map((s) => s.weightKg).reduce((a, b) => a > b ? a : b);
+  }
+
+  /// Inserts a set and marks volume PR and weight PR flags.
   Future<String> insertSet(WorkoutSetsCompanion entry) async {
     final volume = entry.weightKg.value * entry.reps.value;
     final best = await getBestVolume(entry.exerciseId.value);
     final isPR = best == null || volume > best;
-    final finalEntry = entry.copyWith(isPR: Value(isPR));
+    final bestWeight = await getBestWeight(entry.exerciseId.value);
+    final isWeightPR = bestWeight == null || entry.weightKg.value > bestWeight;
+    final finalEntry =
+        entry.copyWith(isPR: Value(isPR), isWeightPR: Value(isWeightPR));
     await into(workoutSets).insert(finalEntry);
     return finalEntry.id.value;
   }
@@ -54,7 +64,7 @@ class SetsDao extends DatabaseAccessor<AppDatabase> with _$SetsDaoMixin {
   Future<int> deleteSet(String id) =>
       (delete(workoutSets)..where((t) => t.id.equals(id))).go();
 
-  /// Recalculates and updates the isPR flag for all sets of a given exercise.
+  /// Recalculates and updates isPR and isWeightPR flags for all sets of a given exercise.
   Future<void> recalculatePRs(String exerciseId) async {
     final sets = await (select(workoutSets)
           ..where((t) => t.exerciseId.equals(exerciseId))
@@ -62,13 +72,17 @@ class SetsDao extends DatabaseAccessor<AppDatabase> with _$SetsDaoMixin {
         .get();
 
     double bestVolume = 0;
+    double bestWeight = 0;
     for (final s in sets) {
       final volume = s.weightKg * s.reps;
       final isPR = volume > bestVolume;
+      final isWeightPR = s.weightKg > bestWeight;
       if (isPR) bestVolume = volume;
-      if (s.isPR != isPR) {
-        await (update(workoutSets)..where((t) => t.id.equals(s.id)))
-            .write(WorkoutSetsCompanion(isPR: Value(isPR)));
+      if (isWeightPR) bestWeight = s.weightKg;
+      if (s.isPR != isPR || s.isWeightPR != isWeightPR) {
+        await (update(workoutSets)..where((t) => t.id.equals(s.id))).write(
+            WorkoutSetsCompanion(
+                isPR: Value(isPR), isWeightPR: Value(isWeightPR)));
       }
     }
   }

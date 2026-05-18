@@ -40,8 +40,21 @@ class ExerciseCard extends ConsumerWidget {
                         style: TextStyle(
                             fontSize: 12, color: cs.onSurfaceVariant),
                       ),
+                      if (entry.notes != null && entry.notes!.isNotEmpty)
+                        _NoteHint(note: entry.notes!),
                     ],
                   ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.sticky_note_2_outlined,
+                    color: (entry.notes != null && entry.notes!.isNotEmpty)
+                        ? cs.primary
+                        : cs.onSurfaceVariant,
+                  ),
+                  tooltip: 'Exercise note',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _showNoteDialog(context, notifier),
                 ),
                 IconButton(
                   icon: const Icon(Icons.add),
@@ -90,6 +103,76 @@ class ExerciseCard extends ConsumerWidget {
               entry: entry.sets[i],
             ),
           const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showNoteDialog(
+      BuildContext context, ActiveWorkoutNotifier notifier) async {
+    final ctrl = TextEditingController(text: entry.notes ?? '');
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Exercise note'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'e.g. Keep elbows tucked',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ''),
+            child: const Text('Clear'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (result == null) return;
+    notifier.updateExerciseNote(entry.id, result.isEmpty ? null : result);
+  }
+}
+
+class _NoteHint extends StatelessWidget {
+  const _NoteHint({required this.note});
+
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: cs.secondaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.sticky_note_2_outlined,
+              size: 11, color: cs.onSecondaryContainer),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              note,
+              style: TextStyle(fontSize: 11, color: cs.onSecondaryContainer),
+            ),
+          ),
         ],
       ),
     );

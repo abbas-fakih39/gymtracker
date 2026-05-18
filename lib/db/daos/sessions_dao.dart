@@ -43,4 +43,16 @@ class SessionsDao extends DatabaseAccessor<AppDatabase>
 
   Future<int> deleteSession(String id) =>
       (delete(workoutSessions)..where((t) => t.id.equals(id))).go();
+
+  /// Most recent finished session for the given template, excluding the current one.
+  Future<WorkoutSession?> getMostRecentCompletedForTemplate(
+          String templateId, String excludeSessionId) =>
+      (select(workoutSessions)
+            ..where((t) =>
+                t.templateId.equals(templateId) &
+                t.finishedAt.isNotNull() &
+                t.id.equals(excludeSessionId).not())
+            ..orderBy([(t) => OrderingTerm.desc(t.startedAt)])
+            ..limit(1))
+          .getSingleOrNull();
 }

@@ -18,6 +18,8 @@ class SetEntry {
   final String repsText;
   final bool isCompleted;
   final bool isPR;
+  final bool isWeightPR;
+  final String? lastSetLabel;
 
   const SetEntry({
     this.dbId,
@@ -26,6 +28,8 @@ class SetEntry {
     this.repsText = '',
     this.isCompleted = false,
     this.isPR = false,
+    this.isWeightPR = false,
+    this.lastSetLabel,
   });
 
   SetEntry copyWith({
@@ -35,7 +39,10 @@ class SetEntry {
     String? repsText,
     bool? isCompleted,
     bool? isPR,
+    bool? isWeightPR,
+    String? lastSetLabel,
     bool clearDbId = false,
+    bool clearLastSetLabel = false,
   }) =>
       SetEntry(
         dbId: clearDbId ? null : (dbId ?? this.dbId),
@@ -44,6 +51,9 @@ class SetEntry {
         repsText: repsText ?? this.repsText,
         isCompleted: isCompleted ?? this.isCompleted,
         isPR: isPR ?? this.isPR,
+        isWeightPR: isWeightPR ?? this.isWeightPR,
+        lastSetLabel:
+            clearLastSetLabel ? null : (lastSetLabel ?? this.lastSetLabel),
       );
 }
 
@@ -52,22 +62,27 @@ class ExerciseEntry {
   final String name;
   final String muscleGroup;
   final List<SetEntry> sets;
+  final String? notes;
 
   const ExerciseEntry({
     required this.id,
     required this.name,
     required this.muscleGroup,
     required this.sets,
+    this.notes,
   });
 
   ExerciseEntry copyWith({
     List<SetEntry>? sets,
+    String? notes,
+    bool clearNotes = false,
   }) =>
       ExerciseEntry(
         id: id,
         name: name,
         muscleGroup: muscleGroup,
         sets: sets ?? this.sets,
+        notes: clearNotes ? null : (notes ?? this.notes),
       );
 }
 
@@ -120,21 +135,29 @@ class ActiveWorkoutNotifier
         return;
       }
       final sets = await _db.setsDao.getForSession(session.id);
-      final exerciseIds = sets.map((s) => s.exerciseId).toSet().toList();
+      final setsByExercise = <String, List<WorkoutSet>>{};
+      for (final s in sets) {
+        setsByExercise.putIfAbsent(s.exerciseId, () => []).add(s);
+      }
 
       final entries = <ExerciseEntry>[];
-      for (final exId in exerciseIds) {
-        final exercise = await _db.exercisesDao.getById(exId);
-        if (exercise == null) continue;
-        final exerciseSets = sets
-            .where((s) => s.exerciseId == exId)
-            .toList()
-          ..sort((a, b) => a.setNumber.compareTo(b.setNumber));
-        entries.add(ExerciseEntry(
-          id: exId,
-          name: exercise.name,
-          muscleGroup: exercise.muscleGroup,
-          sets: exerciseSets
+
+      if (session.templateId != null) {
+        // Restore template exercise order and fill in any completed sets.
+        final templateExercises = await _db.templatesDao
+            .getExercisesForTemplate(session.templateId!);
+        final templateExerciseIds = <String>{};
+        final prevMap =
+            await _buildLastSetsMap(session.templateId!, session.id);
+
+        for (final te in templateExercises) {
+          final exercise = await _db.exercisesDao.getById(te.exerciseId);
+          if (exercise == null) continue;
+          templateExerciseIds.add(te.exerciseId);
+
+          final completed = (setsByExercise[te.exerciseId] ?? [])
+            ..sort((a, b) => a.setNumber.compareTo(b.setNumber));
+          final completedEntries = completed
               .map((s) => SetEntry(
                     dbId: s.id,
                     setNumber: s.setNumber,
@@ -142,9 +165,87 @@ class ActiveWorkoutNotifier
                     repsText: s.reps.toString(),
                     isCompleted: true,
                     isPR: s.isPR,
+                    isWeightPR: s.isWeightPR,
                   ))
-              .toList(),
-        ));
+              .toList();
+
+          // Keep at least defaultSets rows; always leave one empty slot.
+          final targetSets = te.defaultSets > 0 ? te.defaultSets : 1;
+          final emptyCount =
+              completed.length < targetSets ? targetSets - completed.length : 1;
+          final emptyStart = (completedEntries.lastOrNull?.setNumber ?? 0) + 1;
+          final prevForEx = prevMap[exercise.id] ?? {};
+          final emptyEntries = List.generate(emptyCount, (i) {
+            final setNum = emptyStart + i;
+            final prev = prevForEx[setNum];
+            return SetEntry(
+              setNumber: setNum,
+              lastSetLabel: prev == null
+                  ? null
+                  : _fmtWeight(prev.weightKg, prev.reps),
+            );
+          });
+
+          entries.add(ExerciseEntry(
+            id: exercise.id,
+            name: exercise.name,
+            muscleGroup: exercise.muscleGroup,
+            notes: exercise.notes,
+            sets: [...completedEntries, ...emptyEntries],
+          ));
+        }
+
+        // Exercises manually added during the workout (not part of the template).
+        for (final exId in setsByExercise.keys) {
+          if (templateExerciseIds.contains(exId)) continue;
+          final exercise = await _db.exercisesDao.getById(exId);
+          if (exercise == null) continue;
+          final exerciseSets = setsByExercise[exId]!
+            ..sort((a, b) => a.setNumber.compareTo(b.setNumber));
+          entries.add(ExerciseEntry(
+            id: exId,
+            name: exercise.name,
+            muscleGroup: exercise.muscleGroup,
+            notes: exercise.notes,
+            sets: [
+              ...exerciseSets.map((s) => SetEntry(
+                    dbId: s.id,
+                    setNumber: s.setNumber,
+                    weightText: s.weightKg.toString(),
+                    repsText: s.reps.toString(),
+                    isCompleted: true,
+                    isPR: s.isPR,
+                    isWeightPR: s.isWeightPR,
+                  )),
+              SetEntry(setNumber: exerciseSets.length + 1),
+            ],
+          ));
+        }
+      } else {
+        // Non-template workout: reconstruct from completed sets only.
+        for (final exId in setsByExercise.keys) {
+          final exercise = await _db.exercisesDao.getById(exId);
+          if (exercise == null) continue;
+          final exerciseSets = setsByExercise[exId]!
+            ..sort((a, b) => a.setNumber.compareTo(b.setNumber));
+          entries.add(ExerciseEntry(
+            id: exId,
+            name: exercise.name,
+            muscleGroup: exercise.muscleGroup,
+            notes: exercise.notes,
+            sets: exerciseSets
+                .map((s) => SetEntry(
+                      dbId: s.id,
+                      setNumber: s.setNumber,
+                      weightText: s.weightKg.toString(),
+                      repsText: s.reps.toString(),
+                      isCompleted: true,
+                      isPR: s.isPR,
+                      isWeightPR: s.isWeightPR,
+                    ))
+                .toList(),
+          ));
+        }
       }
 
       state = AsyncValue.data(ActiveWorkoutState(
@@ -185,7 +286,8 @@ class ActiveWorkoutNotifier
     state = AsyncValue.data(current.copyWith(workoutName: name));
   }
 
-  void addExercise(String id, String name, String muscleGroup) {
+  void addExercise(String id, String name, String muscleGroup,
+      {String? notes}) {
     final current = state.valueOrNull;
     if (current == null) return;
     if (current.exercises.any((e) => e.id == id)) return;
@@ -194,6 +296,7 @@ class ActiveWorkoutNotifier
       name: name,
       muscleGroup: muscleGroup,
       sets: [const SetEntry(setNumber: 1)],
+      notes: notes,
     );
     state = AsyncValue.data(
         current.copyWith(exercises: [...current.exercises, entry]));
@@ -248,6 +351,8 @@ class ActiveWorkoutNotifier
 
     final best = await _db.setsDao.getBestVolume(exerciseId);
     final isPR = best == null || (weight * reps) > best;
+    final bestWeight = await _db.setsDao.getBestWeight(exerciseId);
+    final isWeightPR = bestWeight == null || weight > bestWeight;
     final id = _uuid.v4();
 
     await _db.setsDao.insertSet(WorkoutSetsCompanion(
@@ -265,7 +370,7 @@ class ActiveWorkoutNotifier
         exerciseId,
         setIndex,
         (s) => s.copyWith(
-            dbId: id, isCompleted: true, isPR: isPR));
+            dbId: id, isCompleted: true, isPR: isPR, isWeightPR: isWeightPR));
   }
 
   Future<void> startFromTemplate(String templateId) async {
@@ -283,16 +388,27 @@ class ActiveWorkoutNotifier
       startedAt: Value(now),
     ));
 
+    final prevMap = await _buildLastSetsMap(templateId, id);
+
     final exercises = <ExerciseEntry>[];
     for (final te in templateExercises) {
       final exercise = await _db.exercisesDao.getById(te.exerciseId);
       if (exercise == null) continue;
       final count = te.defaultSets > 0 ? te.defaultSets : 1;
+      final prevForEx = prevMap[exercise.id] ?? {};
       exercises.add(ExerciseEntry(
         id: exercise.id,
         name: exercise.name,
         muscleGroup: exercise.muscleGroup,
-        sets: List.generate(count, (i) => SetEntry(setNumber: i + 1)),
+        notes: exercise.notes,
+        sets: List.generate(count, (i) {
+          final setNum = i + 1;
+          final prev = prevForEx[setNum];
+          return SetEntry(
+            setNumber: setNum,
+            lastSetLabel: prev == null ? null : _fmtWeight(prev.weightKg, prev.reps),
+          );
+        }),
       ));
     }
 
@@ -301,6 +417,41 @@ class ActiveWorkoutNotifier
       workoutName: template.name,
       startedAt: now,
       exercises: exercises,
+    ));
+  }
+
+  /// Fetches the most recent completed session for [templateId] (excluding
+  /// [currentSessionId]) and returns a map of exerciseId → setNumber → set.
+  Future<Map<String, Map<int, WorkoutSet>>> _buildLastSetsMap(
+      String templateId, String currentSessionId) async {
+    final prev = await _db.sessionsDao
+        .getMostRecentCompletedForTemplate(templateId, currentSessionId);
+    if (prev == null) return {};
+    final sets = await _db.setsDao.getForSession(prev.id);
+    final map = <String, Map<int, WorkoutSet>>{};
+    for (final s in sets) {
+      map.putIfAbsent(s.exerciseId, () => {})[s.setNumber] = s;
+    }
+    return map;
+  }
+
+  static String _fmtWeight(double kg, int reps) {
+    final w = kg % 1 == 0 ? kg.toInt().toString() : kg.toString();
+    return '$w × $reps';
+  }
+
+  Future<void> updateExerciseNote(String exerciseId, String? note) async {
+    await _db.exercisesDao.updateExerciseNote(exerciseId, note);
+    final current = state.valueOrNull;
+    if (current == null) return;
+    state = AsyncValue.data(current.copyWith(
+      exercises: current.exercises
+          .map((e) => e.id == exerciseId
+              ? (note == null || note.isEmpty
+                  ? e.copyWith(clearNotes: true)
+                  : e.copyWith(notes: note))
+              : e)
+          .toList(),
     ));
   }
 

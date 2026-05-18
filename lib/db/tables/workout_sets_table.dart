@@ -13,6 +13,7 @@ class WorkoutSets extends Table {
   RealColumn get weightKg => real()();
   IntColumn get reps => integer()();
   BoolColumn get isPR => boolean().withDefault(const Constant(false))();
+  BoolColumn get isWeightPR => boolean().withDefault(const Constant(false))();
   DateTimeColumn get completedAt => dateTime()();
 
   @override

@@ -35,7 +35,19 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onUpgrade: (migrator, from, to) async {
+      if (from < 2) {
+        await customStatement(
+            'ALTER TABLE exercises ADD COLUMN notes TEXT;');
+        await customStatement(
+            'ALTER TABLE workout_sets ADD COLUMN is_weight_pr INTEGER NOT NULL DEFAULT 0;');
+      }
+    },
+  );
 }
 
 Future<AppDatabase> openAppDatabase() async {

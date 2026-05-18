@@ -44,57 +44,89 @@ class _SetRowState extends ConsumerState<SetRow> {
     final completed = entry.isCompleted;
     final cs = Theme.of(context).colorScheme;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 28,
+    final showGhost =
+        entry.lastSetLabel != null && !completed;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 28,
+                child: Text(
+                  '${entry.setNumber}',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: cs.onSurfaceVariant),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _NumberField(
+                  controller: _weightCtrl,
+                  hint: 'kg',
+                  enabled: !completed,
+                  onChanged: (v) => notifier.updateWeight(
+                      widget.exerciseId, widget.setIndex, v),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _NumberField(
+                  controller: _repsCtrl,
+                  hint: 'reps',
+                  enabled: !completed,
+                  onChanged: (v) => notifier.updateReps(
+                      widget.exerciseId, widget.setIndex, v),
+                ),
+              ),
+              const SizedBox(width: 4),
+              if (entry.isPR || entry.isWeightPR)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (entry.isPR)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 2),
+                        child: Icon(Icons.star_rounded,
+                            color: Colors.amber, size: 16),
+                      ),
+                    if (entry.isWeightPR)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 2),
+                        child: Icon(Icons.fitness_center,
+                            color: Colors.deepOrange, size: 16),
+                      ),
+                  ],
+                ),
+              IconButton(
+                onPressed: () => notifier.toggleCompleteSet(
+                    widget.exerciseId, widget.setIndex),
+                icon: Icon(
+                  completed
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  color: completed ? Colors.green : cs.onSurfaceVariant,
+                ),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+              ),
+            ],
+          ),
+        ),
+        if (showGhost)
+          Padding(
+            padding: const EdgeInsets.only(left: 48, bottom: 2),
             child: Text(
-              '${entry.setNumber}',
-              style: TextStyle(
-                  fontWeight: FontWeight.bold, color: cs.onSurfaceVariant),
-              textAlign: TextAlign.center,
+              'Last: ${entry.lastSetLabel}',
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _NumberField(
-              controller: _weightCtrl,
-              hint: 'kg',
-              enabled: !completed,
-              onChanged: (v) => notifier.updateWeight(
-                  widget.exerciseId, widget.setIndex, v),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _NumberField(
-              controller: _repsCtrl,
-              hint: 'reps',
-              enabled: !completed,
-              onChanged: (v) =>
-                  notifier.updateReps(widget.exerciseId, widget.setIndex, v),
-            ),
-          ),
-          const SizedBox(width: 4),
-          if (entry.isPR)
-            const Padding(
-              padding: EdgeInsets.only(right: 4),
-              child: Icon(Icons.star_rounded, color: Colors.amber, size: 18),
-            ),
-          IconButton(
-            onPressed: () => notifier.toggleCompleteSet(
-                widget.exerciseId, widget.setIndex),
-            icon: Icon(
-              completed ? Icons.check_circle : Icons.radio_button_unchecked,
-              color: completed ? Colors.green : cs.onSurfaceVariant,
-            ),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-          ),
-        ],
-      ),
+      ],
     );
   }
 }

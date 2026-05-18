@@ -35,4 +35,8 @@ class ExercisesDao extends DatabaseAccessor<AppDatabase>
 
   Future<int> deleteExercise(String id) =>
       (delete(exercises)..where((t) => t.id.equals(id))).go();
+
+  Future<void> updateExerciseNote(String exerciseId, String? note) =>
+      (update(exercises)..where((t) => t.id.equals(exerciseId)))
+          .write(ExercisesCompanion(notes: Value(note)));
 }

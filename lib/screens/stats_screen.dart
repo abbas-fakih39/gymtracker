@@ -23,6 +23,12 @@ DateTime _weekStart(DateTime d) =>
     DateTime(d.year, d.month, d.day - (d.weekday - 1));
 
 // ---------------------------------------------------------------------------
+// Metric toggle enum
+// ---------------------------------------------------------------------------
+
+enum _ChartMetric { maxWeight, volume, totalReps }
+
+// ---------------------------------------------------------------------------
 // Local data models
 // ---------------------------------------------------------------------------
 
@@ -31,12 +37,14 @@ class _SessionStats {
   final DateTime date;
   final double maxWeight;
   final double volume;
+  final int totalReps;
 
   const _SessionStats({
     required this.sessionId,
     required this.date,
     required this.maxWeight,
     required this.volume,
+    required this.totalReps,
   });
 }
 
@@ -106,6 +114,7 @@ final _exerciseStatsProvider =
         date: date,
         maxWeight: maxW,
         volume: ss.fold(0.0, (sum, s) => sum + s.weightKg * s.reps),
+        totalReps: ss.fold(0, (sum, s) => sum + s.reps),
       );
     }).toList()
       ..sort((a, b) => a.date.compareTo(b.date));
@@ -172,6 +181,7 @@ class StatsScreen extends ConsumerStatefulWidget {
 
 class _StatsScreenState extends ConsumerState<StatsScreen> {
   Exercise? _selectedExercise;
+  _ChartMetric _selectedMetric = _ChartMetric.maxWeight;
 
   void _openPicker() {
     showModalBottomSheet(
@@ -194,6 +204,28 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             exercise: _selectedExercise,
             onTap: _openPicker,
           ),
+          if (_selectedExercise != null) ...[
+            const SizedBox(height: 12),
+            SegmentedButton<_ChartMetric>(
+              segments: const [
+                ButtonSegment(
+                  value: _ChartMetric.maxWeight,
+                  label: Text('Max Weight'),
+                ),
+                ButtonSegment(
+                  value: _ChartMetric.volume,
+                  label: Text('Volume'),
+                ),
+                ButtonSegment(
+                  value: _ChartMetric.totalReps,
+                  label: Text('Total Reps'),
+                ),
+              ],
+              selected: {_selectedMetric},
+              onSelectionChanged: (s) =>
+                  setState(() => _selectedMetric = s.first),
+            ),
+          ],
           const SizedBox(height: 16),
           if (_selectedExercise == null)
             const Padding(
@@ -206,7 +238,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
               ),
             )
           else ...[
-            _ExerciseStatsView(exercise: _selectedExercise!),
+            _ExerciseStatsView(
+              exercise: _selectedExercise!,
+              metric: _selectedMetric,
+            ),
             const SizedBox(height: 24),
           ],
           _WeeklyVolumeSection(),
@@ -254,9 +289,13 @@ class _ExercisePickerButton extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ExerciseStatsView extends ConsumerWidget {
-  const _ExerciseStatsView({required this.exercise});
+  const _ExerciseStatsView({
+    required this.exercise,
+    required this.metric,
+  });
 
   final Exercise exercise;
+  final _ChartMetric metric;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -272,19 +311,7 @@ class _ExerciseStatsView extends ConsumerWidget {
         children: [
           _SummaryRow(stats: stats),
           const SizedBox(height: 20),
-          _ChartSection(
-            title: 'Max Weight (kg)',
-            child: stats.sessions.isEmpty
-                ? _emptyChart()
-                : _MaxWeightChart(sessions: stats.sessions),
-          ),
-          const SizedBox(height: 16),
-          _ChartSection(
-            title: 'Volume per Session',
-            child: stats.sessions.isEmpty
-                ? _emptyChart()
-                : _VolumePerSessionChart(sessions: stats.sessions),
-          ),
+          _chartForMetric(stats),
           const SizedBox(height: 16),
           _PrList(prs: stats.prs),
         ],
@@ -292,10 +319,31 @@ class _ExerciseStatsView extends ConsumerWidget {
     );
   }
 
-  Widget _emptyChart() => const SizedBox(
+  Widget _chartForMetric(_ExerciseStats stats) {
+    if (stats.sessions.isEmpty) {
+      return const SizedBox(
         height: 80,
         child: Center(child: Text('No data yet')),
       );
+    }
+    switch (metric) {
+      case _ChartMetric.maxWeight:
+        return _ChartSection(
+          title: 'Max Weight (kg)',
+          child: _MaxWeightChart(sessions: stats.sessions),
+        );
+      case _ChartMetric.volume:
+        return _ChartSection(
+          title: 'Volume per Session (kg)',
+          child: _VolumePerSessionChart(sessions: stats.sessions),
+        );
+      case _ChartMetric.totalReps:
+        return _ChartSection(
+          title: 'Total Reps per Session',
+          child: _TotalRepsChart(sessions: stats.sessions),
+        );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -531,6 +579,89 @@ class _VolumePerSessionChart extends StatelessWidget {
                     BarChartRodData(
                       toY: e.value.volume,
                       color: cs.primary,
+                      width: barWidth,
+                      borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(4)),
+                    ),
+                  ],
+                ),
+              )
+              .toList(),
+          titlesData: FlTitlesData(
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                interval: 1,
+                reservedSize: 28,
+                getTitlesWidget: (v, _) => xLabel(v),
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 44,
+                getTitlesWidget: (v, meta) {
+                  if (v == 0 || v == meta.max) {
+                    return const SizedBox.shrink();
+                  }
+                  return Text('${v.toInt()}', style: axisStyle);
+                },
+              ),
+            ),
+            rightTitles:
+                AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles:
+                AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          gridData: FlGridData(show: true, drawVerticalLine: false),
+          borderData: FlBorderData(show: false),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Total reps per session bar chart
+// ---------------------------------------------------------------------------
+
+class _TotalRepsChart extends StatelessWidget {
+  const _TotalRepsChart({required this.sessions});
+
+  final List<_SessionStats> sessions;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final axisStyle = TextStyle(fontSize: 10, color: cs.onSurfaceVariant);
+    final n = sessions.length;
+    final step = (n / 5).ceil().clamp(1, n);
+    final barWidth = (240.0 / n).clamp(4.0, 24.0);
+
+    Widget xLabel(double v) {
+      final idx = v.toInt();
+      if (idx < 0 || idx >= n) return const SizedBox.shrink();
+      if (idx % step != 0 && idx != n - 1) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(_shortDate(sessions[idx].date), style: axisStyle),
+      );
+    }
+
+    return SizedBox(
+      height: 200,
+      child: BarChart(
+        BarChartData(
+          barGroups: sessions
+              .asMap()
+              .entries
+              .map(
+                (e) => BarChartGroupData(
+                  x: e.key,
+                  barRods: [
+                    BarChartRodData(
+                      toY: e.value.totalReps.toDouble(),
+                      color: cs.tertiary,
                       width: barWidth,
                       borderRadius: const BorderRadius.vertical(
                           top: Radius.circular(4)),

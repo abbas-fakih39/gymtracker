@@ -6,6 +6,7 @@ class Exercises extends Table {
   TextColumn get muscleGroup => text()();
   TextColumn get category => text()();
   BoolColumn get isCustom => boolean().withDefault(const Constant(false))();
+  TextColumn get notes => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
