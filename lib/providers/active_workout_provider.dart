@@ -268,6 +268,42 @@ class ActiveWorkoutNotifier
             dbId: id, isCompleted: true, isPR: isPR));
   }
 
+  Future<void> startFromTemplate(String templateId) async {
+    final template = await _db.templatesDao.getById(templateId);
+    if (template == null) return;
+    final templateExercises =
+        await _db.templatesDao.getExercisesForTemplate(templateId);
+
+    final id = _uuid.v4();
+    final now = DateTime.now();
+    await _db.sessionsDao.insertSession(WorkoutSessionsCompanion(
+      id: Value(id),
+      templateId: Value(template.id),
+      name: Value(template.name),
+      startedAt: Value(now),
+    ));
+
+    final exercises = <ExerciseEntry>[];
+    for (final te in templateExercises) {
+      final exercise = await _db.exercisesDao.getById(te.exerciseId);
+      if (exercise == null) continue;
+      final count = te.defaultSets > 0 ? te.defaultSets : 1;
+      exercises.add(ExerciseEntry(
+        id: exercise.id,
+        name: exercise.name,
+        muscleGroup: exercise.muscleGroup,
+        sets: List.generate(count, (i) => SetEntry(setNumber: i + 1)),
+      ));
+    }
+
+    state = AsyncValue.data(ActiveWorkoutState(
+      sessionId: id,
+      workoutName: template.name,
+      startedAt: now,
+      exercises: exercises,
+    ));
+  }
+
   Future<void> finishWorkout() async {
     final current = state.valueOrNull;
     if (current == null) return;
